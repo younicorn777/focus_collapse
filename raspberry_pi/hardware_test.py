@@ -19,7 +19,7 @@ def main():
     for state in test_states:
         print()
         print("현재 상태:", state)
-        hardware.update_led_by_state(state)
+        hardware.update_by_state(state)
         time.sleep(1)
 
 
