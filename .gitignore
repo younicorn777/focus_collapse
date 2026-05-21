@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Conda / virtual environment
+.env/
+.venv/
+venv/
+env/
+
+# VSCode
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs / records
+*.log
+raspberry_pi/records/*.csv
+
+# Media / test files
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.png
+
+# Secrets
+.env
+config.py
