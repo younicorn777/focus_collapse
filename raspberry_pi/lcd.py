@@ -34,7 +34,7 @@ class LCDController:
                     auto_linebreaks=True,
                 )
 
-                self.lcd.clear()
+                self.lcd.clear() # 너무 깜빡이면 제거해도 됨.
                 print("[LCD] I2C mode")
 
             except Exception as e:
