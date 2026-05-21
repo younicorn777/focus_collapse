@@ -1,12 +1,26 @@
+import time
 from flask import Flask, request, jsonify, render_template_string
 
+from hardware import HardwareController
+from lcd import LCDController
 from logger import write_log, read_logs
 from dashboard import build_summary, build_timetable
 
 
 app = Flask(__name__)
 
-latest_data = {}
+hardware = HardwareController()
+lcd = LCDController()
+
+latest_data = {
+    "state": "STOPPED",
+    "score": 0,
+    "reason": "ready",
+    "event": "init",
+    "work_id": 0,
+    "work_seconds": 0,
+    "rest_left_seconds": 0,
+}
 
 
 HTML_TEMPLATE = """
@@ -44,26 +58,20 @@ HTML_TEMPLATE = """
         th {
             background: #eee;
         }
-        .state-focused {
-            color: green;
-            font-weight: bold;
-        }
-        .state-distracted {
-            color: orange;
-            font-weight: bold;
-        }
-        .state-collapsed {
-            color: red;
-            font-weight: bold;
-        }
-        .state-resting {
-            color: blue;
-            font-weight: bold;
-        }
     </style>
 </head>
 <body>
     <h1>🧠 Focus Collapse Dashboard</h1>
+
+    <div class="card">
+        <h2>현재 상태</h2>
+        <p>상태: <b>{{ latest.state }}</b></p>
+        <p>현재 작업 번호: <b>{{ latest.work_id }}</b></p>
+        <p>현재 작업 시간: <b>{{ work_time }}</b></p>
+        <p>휴식 남은 시간: <b>{{ rest_left }}</b></p>
+        <p>점수: <b>{{ latest.score }}</b></p>
+        <p>이유: <b>{{ latest.reason }}</b></p>
+    </div>
 
     <div class="card">
         <h2>오늘 요약</h2>
@@ -72,7 +80,6 @@ HTML_TEMPLATE = """
         <p>집중 저하 시간: <b>{{ summary.distracted_time }}</b></p>
         <p>휴식 시간: <b>{{ summary.rest_time }}</b></p>
         <p>집중 붕괴 감지 횟수: <b>{{ summary.collapsed_count }}회</b></p>
-        <p>수동 휴식 횟수: <b>{{ summary.manual_rest_count }}회</b></p>
     </div>
 
     <div class="card">
@@ -80,6 +87,7 @@ HTML_TEMPLATE = """
         <table>
             <thead>
                 <tr>
+                    <th>작업 번호</th>
                     <th>시간</th>
                     <th>상태</th>
                     <th>내용</th>
@@ -88,6 +96,7 @@ HTML_TEMPLATE = """
             <tbody>
                 {% for item in timetable %}
                 <tr>
+                    <td>{{ item.work_id }}</td>
                     <td>{{ item.start }} ~ {{ item.end }}</td>
                     <td>{{ item.state }}</td>
                     <td>{{ item.description }}</td>
@@ -101,12 +110,69 @@ HTML_TEMPLATE = """
 """
 
 
+def format_seconds(seconds):
+    seconds = int(seconds)
+
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    secs = seconds % 60
+
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def build_lcd_status(data):
+    """
+    lcd.py가 이해하는 형태로 데이터 변환
+    """
+    return {
+        "state": data.get("state", "STOPPED"),
+        "current_work_seconds": data.get("work_seconds", 0),
+        "rest_left_seconds": data.get("rest_left_seconds", 0),
+    }
+
+
+def sync_outputs(data):
+    """
+    노트북에서 받은 상태를 하드웨어에 그대로 반영
+    """
+    state = data.get("state", "STOPPED")
+
+    hardware.update_by_state(state)
+    lcd.update_by_status(build_lcd_status(data))
+
+
+def save_if_event(data):
+    """
+    이벤트가 있을 때만 CSV 저장.
+    heartbeat/status_update는 저장하지 않음.
+    """
+    event = data.get("event", "")
+
+    if event in ["heartbeat", "status_update", "none", ""]:
+        return None
+
+    row = {
+        "timestamp": data.get("timestamp", time.strftime("%H:%M:%S")),
+        "state": data.get("state", ""),
+        "score": data.get("score", 0),
+        "reason": data.get("reason", ""),
+        "event": event,
+        "work_id": data.get("work_id", ""),
+    }
+
+    return write_log(row)
+
+
 @app.route("/")
 def dashboard():
     summary = build_summary()
     timetable = build_timetable()
+
     return render_template_string(
         HTML_TEMPLATE,
+        latest=latest_data,
+        work_time=format_seconds(latest_data.get("work_seconds", 0)),
+        rest_left=format_seconds(latest_data.get("rest_left_seconds", 0)),
         summary=summary,
         timetable=timetable,
     )
@@ -119,19 +185,25 @@ def update_state():
     data = request.get_json()
 
     if data is None:
-        return jsonify({"status": "error", "message": "No JSON received"}), 400
+        return jsonify({
+            "status": "error",
+            "message": "No JSON received"
+        }), 400
 
     latest_data = data
 
-    saved_row = write_log(data)
+    sync_outputs(data)
+    saved = save_if_event(data)
 
     print("[RECEIVED]", data)
-    print("[SAVED]", saved_row)
+
+    if saved:
+        print("[SAVED]", saved)
 
     return jsonify({
         "status": "success",
         "received": data,
-        "saved": saved_row,
+        "saved": saved,
     })
 
 
@@ -146,4 +218,14 @@ def logs():
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    try:
+        sync_outputs(latest_data)
+        app.run(
+            host="0.0.0.0",
+            port=5000,
+            debug=False,
+            threaded=True,
+        )
+    finally:
+        hardware.close()
+        lcd.close()
