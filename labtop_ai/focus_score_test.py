@@ -47,6 +47,8 @@ SCORE_MAX = 100
 
 EYE_CLOSED_SCORE = 25
 YAWN_SCORE = 30
+
+NORMAL_RECOVERY_SECONDS = 10.0
 NORMAL_RECOVERY_SCORE = 10
 
 COLLAPSED_SCORE_THRESHOLD = 60
@@ -219,7 +221,7 @@ def main():
                 # Normal Recovery
                 # =========================
                 if not is_eye_closed and not is_mouth_open:
-                    if current_time - last_normal_recovery_time >= 3.0:
+                    if current_time - last_normal_recovery_time >= NORMAL_RECOVERY_SECONDS:
                         focus_score -= NORMAL_RECOVERY_SCORE
                         last_normal_recovery_time = current_time
                         reason_text = "normal_recovery"
