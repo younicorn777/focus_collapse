@@ -1,6 +1,6 @@
 import requests
 class Sender:
-    def __init__(self, pi_url="http://127.0.0.1:5000/update_state"):
+    def __init__(self, pi_url="http://172.16.42.59:5000/update_state"):
         self.pi_url = pi_url
 
     def send(self, data):
