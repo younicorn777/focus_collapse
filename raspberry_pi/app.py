@@ -64,16 +64,6 @@ HTML_TEMPLATE = """
     <h1>🧠 Focus Collapse Dashboard</h1>
 
     <div class="card">
-        <h2>현재 상태</h2>
-        <p>상태: <b>{{ latest.state }}</b></p>
-        <p>현재 작업 번호: <b>{{ latest.work_id }}</b></p>
-        <p>현재 작업 시간: <b>{{ work_time }}</b></p>
-        <p>휴식 남은 시간: <b>{{ rest_left }}</b></p>
-        <p>점수: <b>{{ latest.score }}</b></p>
-        <p>이유: <b>{{ latest.reason }}</b></p>
-    </div>
-
-    <div class="card">
         <h2>오늘 요약</h2>
         <p>총 작업 시간: <b>{{ summary.total_work_time }}</b></p>
         <p>집중 상태 시간: <b>{{ summary.focused_time }}</b></p>
@@ -170,9 +160,6 @@ def dashboard():
 
     return render_template_string(
         HTML_TEMPLATE,
-        latest=latest_data,
-        work_time=format_seconds(latest_data.get("work_seconds", 0)),
-        rest_left=format_seconds(latest_data.get("rest_left_seconds", 0)),
         summary=summary,
         timetable=timetable,
     )
