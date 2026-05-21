@@ -1,6 +1,7 @@
 import time
 
 from state_controller import StateController
+from hardware import HardwareController
 
 
 def format_seconds(seconds):
@@ -25,11 +26,22 @@ def print_status(controller):
     print()
 
 
+def update_hardware_if_state_changed(hardware, previous_state, current_state):
+    if previous_state != current_state:
+        hardware.update_by_state(current_state)
+
+
 def main():
     # 테스트에서는 휴식 시간을 짧게 10초로 설정
     controller = StateController(rest_seconds=10)
+    hardware = HardwareController()
 
-    print("StateController 테스트")
+    last_state = controller.get_status()["state"]
+
+    # 초기 상태 LED/부저 반영
+    hardware.update_by_state(last_state)
+
+    print("StateController + Hardware 테스트")
     print("y: 노란 버튼")
     print("r: 빨간 버튼")
     print("c: AI COLLAPSED 수신")
@@ -44,15 +56,22 @@ def main():
     print()
 
     while True:
+        # 휴식 타이머 업데이트
         event = controller.update_timer()
+        current_state = controller.get_status()["state"]
 
         if event == "rest_end":
             print("[EVENT] 휴식 종료 → REST_END_ALERT")
             print("빨간 버튼 r을 누르면 같은 작업으로 복귀합니다.")
 
+        update_hardware_if_state_changed(hardware, last_state, current_state)
+        last_state = current_state
+
         print_status(controller)
 
         command = input("입력(y/r/c/d/f/q): ").strip().lower()
+
+        previous_state = controller.get_status()["state"]
 
         if command == "y":
             event = controller.press_yellow()
@@ -61,6 +80,9 @@ def main():
         elif command == "r":
             event = controller.press_red()
             print("[RED]", event)
+
+            # 빨간 버튼은 경고 확인/휴식 전환 역할이 있으므로 부저를 꺼준다.
+            hardware.buzzer_off()
 
         elif command == "c":
             event = controller.update_from_ai(
@@ -88,10 +110,15 @@ def main():
 
         elif command == "q":
             print("테스트 종료")
+            hardware.buzzer_off()
             break
 
         else:
             print("알 수 없는 입력입니다.")
+
+        current_state = controller.get_status()["state"]
+        update_hardware_if_state_changed(hardware, previous_state, current_state)
+        last_state = current_state
 
         time.sleep(0.5)
 
