@@ -1,6 +1,5 @@
 import requests
 
-
 class Sender:
     """
     Raspberry Pi Flask 서버로 상태 데이터를 전송하는 클래스.
