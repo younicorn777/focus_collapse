@@ -5,11 +5,41 @@ from face_detector import FaceDetector
 from eye_detector import EyeDetector
 from yawn_detector import YawnDetector
 from score_manager import ScoreManager
-from state_manager import StateManager
+from focus_session import FocusSession
 from sender import Sender
 
 
+# ============================================================
+# Raspberry Pi Server URL
+# ============================================================
+
+PI_URL = "http://라즈베리파이IP:5000/update_state"
+# 예: PI_URL = "http://192.168.0.25:5000/update_state"
+
+
+# ============================================================
+# Settings
+# ============================================================
+
+HEARTBEAT_INTERVAL = 1.0
 FACE_NOT_FOUND_SECONDS = 5.0
+
+
+def put_text(frame, text, y, color=(255, 255, 255), scale=0.7):
+    cv2.putText(
+        frame,
+        text,
+        (20, y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        scale,
+        color,
+        2,
+    )
+
+
+def send_event(sender, session, event):
+    payload = session.make_payload(event=event)
+    sender.send(payload)
 
 
 def main():
@@ -23,189 +53,208 @@ def main():
     eye_detector = EyeDetector()
     yawn_detector = YawnDetector()
     score_manager = ScoreManager()
-    state_manager = StateManager()
-    sender = Sender()
+    session = FocusSession(rest_seconds=20)
+    sender = Sender(PI_URL)
 
-    last_state = None
+    last_heartbeat_time = 0
     face_not_found_start_time = None
 
-    print("Focus Collapse 메인 테스트 실행 중입니다.")
-    print("종료하려면 q를 누르세요.")
+    print("Focus Collapse AI 실행 중")
+    print("s: 작업 시작")
+    print("x: 작업 종료")
+    print("r: 휴식 시작")
+    print("e: 휴식 종료 후 복귀")
+    print("q: 종료")
+
+    # 초기 상태 전송
+    send_event(sender, session, "program_start")
 
     try:
         while True:
+            current_time = time.time()
+
             ret, frame = cap.read()
 
             if not ret:
                 print("프레임을 읽을 수 없습니다.")
                 break
 
-            current_time = time.time()
-
-            # 거울처럼 보기 위해 좌우 반전
             frame = cv2.flip(frame, 1)
-
-            # OpenCV는 BGR, MediaPipe는 RGB 사용
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # 얼굴 랜드마크 검출
-            landmarks = face_detector.detect(rgb_frame)
+            # ====================================================
+            # Keyboard Input
+            # ====================================================
 
-            if landmarks is None:
-                # 얼굴이 안 보이면 감지 타이머 초기화
-                eye_detector.reset()
-                yawn_detector.reset()
-                state_manager.reset()
+            key = cv2.waitKey(1) & 0xFF
 
-                if face_not_found_start_time is None:
-                    face_not_found_start_time = current_time
-
-                missing_duration = current_time - face_not_found_start_time
-
-                if missing_duration >= FACE_NOT_FOUND_SECONDS:
-                    state = "INVALID"
-                else:
-                    state = "FACE_NOT_FOUND_WAIT"
-
-                score = score_manager.score
-                reason = "face_not_found"
-                eye_ratio = 0.0
-                mouth_ratio = 0.0
-                eye_duration = 0.0
-                mouth_duration = 0.0
-
-            else:
-                # 얼굴이 다시 보이면 얼굴 미검출 타이머 초기화
-                face_not_found_start_time = None
-
-                # 눈 감김 감지
-                eye_result = eye_detector.update(landmarks)
-
-                # 하품 감지
-                yawn_result = yawn_detector.update(landmarks)
-
-                # 정상 상태 여부
-                # 눈 감김 상태도 아니고, 입 벌림 상태도 아니면 정상으로 판단
-                normal = not eye_result["is_closed"] and not yawn_result["is_open"]
-
-                # 점수 계산
-                # 눈 감김은 risk=True 상태에서 1초마다 점수 증가
-                # 하품은 event=True일 때 1회 점수 증가
-                score_result = score_manager.update(
-                    eye_risk=eye_result["risk"],
-                    yawn_event=yawn_result["event"],
-                    normal=normal,
-                )
-
-                score = score_result["score"]
-                reason = score_result["reason"]
-
-                # COLLAPSED 판단용 이상행동
-                # score >= 60 상태에서 eye_risk 또는 yawn_event가 있으면 COLLAPSED
-                abnormal_detected = eye_result["risk"] or yawn_result["event"]
-
-                # 상태 판단
-                state = state_manager.update(score, abnormal_detected)
-
-                eye_ratio = eye_result["ratio"]
-                mouth_ratio = yawn_result["ratio"]
-                eye_duration = eye_result["duration"]
-                mouth_duration = yawn_result["duration"]
-
-                # 주요 이벤트는 화면이 아니라 터미널에만 출력
-                if reason in ["eye_closed", "yawn", "eye_closed+yawn"]:
-                    print(f"[EVENT] {reason} → score: {score}")
-
-            # 상태가 바뀐 경우에만 전송/출력
-            if state != last_state:
-                data = {
-                    "state": state,
-                    "score": score,
-                    "reason": reason,
-                    "event": "state_change",
-                    "timestamp": time.strftime("%H:%M:%S"),
-                }
-
-                sender.send(data)
-                print(f"상태 변경: {last_state} → {state}")
-                last_state = state
-
-            # =========================
-            # 화면 표시
-            # =========================
-
-            # 상태 색상
-            if state in ["COLLAPSED", "INVALID"]:
-                state_color = (0, 0, 255) # 빨간색
-            elif state == "DISTRACTED":
-                state_color = (0, 255, 255) # 노란색
-            else:
-                state_color = (0, 255, 0) # 초록색
-
-            cv2.putText(
-                frame,
-                f"STATE: {state}",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                state_color,
-                2,
-            )
-
-            cv2.putText(
-                frame,
-                f"Score: {score}",
-                (20, 80),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (255, 255, 255),
-                2,
-            )
-
-            cv2.putText(
-                frame,
-                f"Eye Ratio: {eye_ratio:.3f}",
-                (20, 120),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
-
-            cv2.putText(
-                frame,
-                f"Eye Closed: {eye_duration:.1f}s",
-                (20, 155),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
-
-            cv2.putText(
-                frame,
-                f"Mouth Ratio: {mouth_ratio:.3f}",
-                (20, 190),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
-
-            cv2.putText(
-                frame,
-                f"Mouth Open: {mouth_duration:.1f}s",
-                (20, 225),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 255),
-                2,
-            )
-
-            cv2.imshow("Focus Collapse Main", frame)
-
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            if key == ord("q"):
+                send_event(sender, session, "program_quit")
                 break
+
+            elif key == ord("s"):
+                event = session.start_work()
+
+                if event != "ignored":
+                    score_manager.reset()
+                    eye_detector.reset()
+                    yawn_detector.reset()
+                    send_event(sender, session, event)
+                    print("[KEY] s → start_work")
+
+            elif key == ord("x"):
+                event = session.stop_work()
+
+                if event != "ignored":
+                    send_event(sender, session, event)
+                    print("[KEY] x → stop_work")
+
+            elif key == ord("r"):
+                event = session.start_rest()
+
+                if event != "ignored":
+                    send_event(sender, session, event)
+                    print("[KEY] r → rest_start")
+
+            elif key == ord("e"):
+                event = session.end_rest()
+
+                if event != "ignored":
+                    score_manager.reset()
+                    eye_detector.reset()
+                    yawn_detector.reset()
+                    send_event(sender, session, event)
+                    print("[KEY] e → resume_work")
+
+            # ====================================================
+            # Timer Update
+            # ====================================================
+
+            timer_event = session.update_timer()
+
+            if timer_event != "none":
+                send_event(sender, session, timer_event)
+                print("[TIMER]", timer_event)
+
+            # ====================================================
+            # AI Detection
+            # ====================================================
+
+            eye_ratio = 0.0
+            mouth_ratio = 0.0
+            eye_duration = 0.0
+            mouth_duration = 0.0
+
+            # AI 판단은 작업 중이고 COLLAPSED 고정 상태가 아닐 때만 수행
+            ai_enabled = session.state in ["FOCUSED", "DISTRACTED"] and not session.collapsed_locked
+
+            if ai_enabled:
+                landmarks = face_detector.detect(rgb_frame)
+
+                if landmarks is None:
+                    if face_not_found_start_time is None:
+                        face_not_found_start_time = current_time
+
+                    missing_duration = current_time - face_not_found_start_time
+
+                    if missing_duration >= FACE_NOT_FOUND_SECONDS:
+                        # 얼굴 미검출은 점수 계산에는 반영하지 않고 상태만 INVALID로 보냄
+                        session.state = "INVALID"
+                        session.reason = "face_not_found"
+                        send_event(sender, session, "face_not_found")
+                        print("[AI] FACE NOT FOUND")
+
+                else:
+                    face_not_found_start_time = None
+
+                    eye_result = eye_detector.update(landmarks)
+                    yawn_result = yawn_detector.update(landmarks)
+
+                    eye_ratio = eye_result["ratio"]
+                    mouth_ratio = yawn_result["ratio"]
+                    eye_duration = eye_result["duration"]
+                    mouth_duration = yawn_result["duration"]
+
+                    # 하품 중에는 눈 감김 점수 무시
+                    if yawn_result["is_open"]:
+                        eye_risk_for_score = False
+                    else:
+                        eye_risk_for_score = eye_result["risk"]
+
+                    yawn_event = yawn_result["event"]
+
+                    normal = (
+                        not eye_result["is_closed"]
+                        and not yawn_result["is_open"]
+                    )
+
+                    score_result = score_manager.update(
+                        eye_risk=eye_risk_for_score,
+                        yawn_event=yawn_event,
+                        normal=normal,
+                    )
+
+                    score = score_result["score"]
+                    reason = score_result["reason"]
+
+                    ai_event = session.update_ai_state(
+                        score=score,
+                        reason=reason,
+                    )
+
+                    if ai_event in ["state_change", "collapse"]:
+                        send_event(sender, session, ai_event)
+                        print("[AI]", ai_event, session.state, session.score)
+
+            # COLLAPSED 상태에서는 점수 계산/AI 갱신 중지
+            # RESTING/REST_END_ALERT/STOPPED 상태에서도 AI 결과 무시
+
+            # ====================================================
+            # Heartbeat
+            # ====================================================
+
+            if current_time - last_heartbeat_time >= HEARTBEAT_INTERVAL:
+                send_event(sender, session, "heartbeat")
+                last_heartbeat_time = current_time
+
+            # ====================================================
+            # Screen Display
+            # ====================================================
+
+            state = session.state
+            score = session.score
+            work_time = session.get_current_work_seconds()
+            rest_left = session.get_rest_left_seconds()
+
+            if state == "COLLAPSED":
+                state_color = (0, 0, 255)
+            elif state == "DISTRACTED":
+                state_color = (0, 255, 255)
+            elif state == "RESTING":
+                state_color = (255, 0, 0)
+            elif state == "REST_END_ALERT":
+                state_color = (255, 0, 255)
+            elif state == "STOPPED":
+                state_color = (180, 180, 180)
+            else:
+                state_color = (0, 255, 0)
+
+            put_text(frame, f"STATE: {state}", 40, state_color, 1.0)
+            put_text(frame, f"Score: {score}", 80)
+            put_text(frame, f"Work ID: {session.work_id}", 115)
+            put_text(frame, f"Work Time: {int(work_time)}s", 150)
+
+            if state in ["RESTING", "REST_END_ALERT"]:
+                put_text(frame, f"Rest Left: {int(rest_left)}s", 185)
+
+            put_text(frame, f"Eye Ratio: {eye_ratio:.3f}", 220)
+            put_text(frame, f"Eye Closed: {eye_duration:.1f}s", 255)
+            put_text(frame, f"Mouth Ratio: {mouth_ratio:.3f}", 290)
+            put_text(frame, f"Mouth Open: {mouth_duration:.1f}s", 325)
+
+            put_text(frame, "Keys: s=start x=stop r=rest e=end q=quit", 460, (200, 200, 200), 0.6)
+
+            cv2.imshow("Focus Collapse AI", frame)
 
     finally:
         cap.release()
