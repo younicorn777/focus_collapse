@@ -52,6 +52,7 @@ class ScoreManager:
 
         if yawn_event:
             self.score += self.yawn_score
+            self.last_recovery_time = current_time
             reason = "yawn"
 
         elif eye_risk:
@@ -60,11 +61,16 @@ class ScoreManager:
                 self.last_eye_score_time = current_time
                 reason = "eye_closed"
 
+            self.last_recovery_time = current_time
+
         elif normal:
             if current_time - self.last_recovery_time >= self.recovery_seconds:
                 self.score -= self.recovery_score
                 self.last_recovery_time = current_time
                 reason = "normal_recovery"
+
+        else:
+            self.last_recovery_time = current_time
 
         self._clamp()
 

@@ -9,17 +9,8 @@ from focus_session import FocusSession
 from sender import Sender
 
 
-# ============================================================
-# Raspberry Pi Server URL
-# ============================================================
-
 PI_URL = "http://라즈베리파이IP:5000/update_state"
 # 예: PI_URL = "http://192.168.0.25:5000/update_state"
-
-
-# ============================================================
-# Settings
-# ============================================================
 
 HEARTBEAT_INTERVAL = 1.0
 FACE_NOT_FOUND_SECONDS = 5.0
@@ -66,7 +57,6 @@ def main():
     print("e: 휴식 종료 후 복귀")
     print("q: 종료")
 
-    # 초기 상태 전송
     send_event(sender, session, "program_start")
 
     try:
@@ -82,13 +72,10 @@ def main():
             frame = cv2.flip(frame, 1)
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-            # ====================================================
-            # Keyboard Input
-            # ====================================================
-
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord("q"):
+                session.stop_work()
                 send_event(sender, session, "program_quit")
                 break
 
@@ -99,6 +86,8 @@ def main():
                     score_manager.reset()
                     eye_detector.reset()
                     yawn_detector.reset()
+                    face_not_found_start_time = None
+
                     send_event(sender, session, event)
                     print("[KEY] s → start_work")
 
@@ -106,6 +95,8 @@ def main():
                 event = session.stop_work()
 
                 if event != "ignored":
+                    face_not_found_start_time = None
+
                     send_event(sender, session, event)
                     print("[KEY] x → stop_work")
 
@@ -113,6 +104,8 @@ def main():
                 event = session.start_rest()
 
                 if event != "ignored":
+                    face_not_found_start_time = None
+
                     send_event(sender, session, event)
                     print("[KEY] r → rest_start")
 
@@ -123,12 +116,10 @@ def main():
                     score_manager.reset()
                     eye_detector.reset()
                     yawn_detector.reset()
+                    face_not_found_start_time = None
+
                     send_event(sender, session, event)
                     print("[KEY] e → resume_work")
-
-            # ====================================================
-            # Timer Update
-            # ====================================================
 
             timer_event = session.update_timer()
 
@@ -136,17 +127,15 @@ def main():
                 send_event(sender, session, timer_event)
                 print("[TIMER]", timer_event)
 
-            # ====================================================
-            # AI Detection
-            # ====================================================
-
             eye_ratio = 0.0
             mouth_ratio = 0.0
             eye_duration = 0.0
             mouth_duration = 0.0
 
-            # AI 판단은 작업 중이고 COLLAPSED 고정 상태가 아닐 때만 수행
-            ai_enabled = session.state in ["FOCUSED", "DISTRACTED"] and not session.collapsed_locked
+            ai_enabled = (
+                session.state in ["FOCUSED", "DISTRACTED", "INVALID"]
+                and not session.collapsed_locked
+            )
 
             if ai_enabled:
                 landmarks = face_detector.detect(rgb_frame)
@@ -158,11 +147,12 @@ def main():
                     missing_duration = current_time - face_not_found_start_time
 
                     if missing_duration >= FACE_NOT_FOUND_SECONDS:
-                        # 얼굴 미검출은 점수 계산에는 반영하지 않고 상태만 INVALID로 보냄
-                        session.state = "INVALID"
-                        session.reason = "face_not_found"
-                        send_event(sender, session, "face_not_found")
-                        print("[AI] FACE NOT FOUND")
+                        if session.state != "INVALID":
+                            session.state = "INVALID"
+                            session.reason = "face_not_found"
+
+                            send_event(sender, session, "face_not_found")
+                            print("[AI] FACE NOT FOUND")
 
                 else:
                     face_not_found_start_time = None
@@ -175,7 +165,6 @@ def main():
                     eye_duration = eye_result["duration"]
                     mouth_duration = yawn_result["duration"]
 
-                    # 하품 중에는 눈 감김 점수 무시
                     if yawn_result["is_open"]:
                         eye_risk_for_score = False
                     else:
@@ -206,20 +195,9 @@ def main():
                         send_event(sender, session, ai_event)
                         print("[AI]", ai_event, session.state, session.score)
 
-            # COLLAPSED 상태에서는 점수 계산/AI 갱신 중지
-            # RESTING/REST_END_ALERT/STOPPED 상태에서도 AI 결과 무시
-
-            # ====================================================
-            # Heartbeat
-            # ====================================================
-
             if current_time - last_heartbeat_time >= HEARTBEAT_INTERVAL:
                 send_event(sender, session, "heartbeat")
                 last_heartbeat_time = current_time
-
-            # ====================================================
-            # Screen Display
-            # ====================================================
 
             state = session.state
             score = session.score
@@ -236,6 +214,8 @@ def main():
                 state_color = (255, 0, 255)
             elif state == "STOPPED":
                 state_color = (180, 180, 180)
+            elif state == "INVALID":
+                state_color = (100, 100, 255)
             else:
                 state_color = (0, 255, 0)
 
@@ -251,12 +231,22 @@ def main():
             put_text(frame, f"Eye Closed: {eye_duration:.1f}s", 255)
             put_text(frame, f"Mouth Ratio: {mouth_ratio:.3f}", 290)
             put_text(frame, f"Mouth Open: {mouth_duration:.1f}s", 325)
-
-            put_text(frame, "Keys: s=start x=stop r=rest e=end q=quit", 460, (200, 200, 200), 0.6)
+            put_text(
+                frame,
+                "Keys: s=start x=stop r=rest e=end q=quit",
+                460,
+                (200, 200, 200),
+                0.6,
+            )
 
             cv2.imshow("Focus Collapse AI", frame)
 
     finally:
+        try:
+            sender.close()
+        except:
+            pass
+
         cap.release()
         face_detector.close()
         cv2.destroyAllWindows()

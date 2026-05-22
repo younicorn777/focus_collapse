@@ -34,7 +34,7 @@ class LCDController:
                     auto_linebreaks=True,
                 )
 
-                self.lcd.clear() # 너무 깜빡이면 제거해도 됨.
+                self.lcd.clear()
                 print("[LCD] I2C mode")
 
             except Exception as e:
@@ -47,7 +47,11 @@ class LCDController:
             print("[LCD] Mock mode")
 
     def format_seconds(self, seconds):
-        seconds = int(seconds)
+        try:
+            seconds = int(seconds)
+
+        except Exception:
+            seconds = 0
 
         hours = seconds // 3600
         minutes = (seconds % 3600) // 60
@@ -60,8 +64,8 @@ class LCDController:
         LCD 2줄 출력.
         16x2 LCD 기준으로 각 줄은 16글자까지만 표시.
         """
-        line1 = str(line1)[:16]
-        line2 = str(line2)[:16]
+        line1 = str(line1)[:16].ljust(16)
+        line2 = str(line2)[:16].ljust(16)
 
         if line1 == self.last_line1 and line2 == self.last_line2:
             return
@@ -70,8 +74,9 @@ class LCDController:
         self.last_line2 = line2
 
         if self.lcd is not None:
-            self.lcd.clear()
+            self.lcd.cursor_pos = (0, 0)
             self.lcd.write_string(line1)
+
             self.lcd.cursor_pos = (1, 0)
             self.lcd.write_string(line2)
 

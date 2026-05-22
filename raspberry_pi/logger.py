@@ -55,6 +55,8 @@ def ensure_log_file(target_date=None):
     """
     날짜별 CSV 파일이 없으면 새로 생성하고 헤더 작성.
     """
+    os.makedirs(LOG_DIR, exist_ok=True)
+
     log_file = get_log_file(target_date)
 
     if not os.path.exists(log_file):
@@ -72,24 +74,15 @@ def ensure_log_file(target_date=None):
 def write_log(row):
     """
     CSV에 로그 1개 추가.
-
-    row 예:
-    {
-        "timestamp": "14:20:10",
-        "state": "FOCUSED",
-        "score": 10,
-        "reason": "normal",
-        "event": "start_work",
-        "work_id": 1,
-    }
     """
     today = datetime.now().strftime("%Y-%m-%d")
+    now_time = datetime.now().strftime("%H:%M:%S")
 
     log_file = ensure_log_file(today)
 
     full_row = {
         "date": today,
-        "timestamp": row.get("timestamp", ""),
+        "timestamp": row.get("timestamp", now_time),
         "state": row.get("state", ""),
         "score": row.get("score", 0),
         "reason": row.get("reason", ""),
@@ -129,7 +122,6 @@ def read_logs(target_date=None):
         reader = csv.DictReader(f)
 
         for row in reader:
-            # 숫자 타입 변환
             try:
                 row["score"] = int(row.get("score", 0))
             except:
@@ -152,12 +144,6 @@ def read_logs(target_date=None):
 def get_available_log_dates():
     """
     저장된 로그 날짜 목록 반환.
-
-    예:
-    [
-        "2026-05-20",
-        "2026-05-21",
-    ]
     """
     dates = []
 

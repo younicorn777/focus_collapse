@@ -30,13 +30,12 @@ class SessionStorage:
             target_date = self.get_today()
 
         filename = f"session_state_{target_date}.json"
-
         return os.path.join(self.storage_dir, filename)
 
     def load_state(self, target_date=None):
         """
-        오늘 날짜 상태 파일을 읽는다.
-        파일이 없으면 기본값을 반환한다.
+        날짜별 상태 파일을 읽는다.
+        파일이 없거나 읽기 실패 시 기본값을 반환한다.
         """
         if target_date is None:
             target_date = self.get_today()
@@ -58,7 +57,9 @@ class SessionStorage:
                 "last_work_id": int(data.get("last_work_id", 0)),
             }
 
-        except Exception:
+        except Exception as e:
+            print("[SESSION STORAGE ERROR]", e)
+
             return {
                 "date": target_date,
                 "last_work_id": 0,
@@ -66,10 +67,12 @@ class SessionStorage:
 
     def save_state(self, last_work_id, target_date=None):
         """
-        오늘 날짜 상태 파일에 마지막 work_id를 저장한다.
+        날짜별 상태 파일에 마지막 work_id를 저장한다.
         """
         if target_date is None:
             target_date = self.get_today()
+
+        os.makedirs(self.storage_dir, exist_ok=True)
 
         file_path = self.get_storage_file(target_date)
 

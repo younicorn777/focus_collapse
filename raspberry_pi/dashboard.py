@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from logger import read_logs
 
 
@@ -6,8 +7,16 @@ from logger import read_logs
 # State Groups
 # ============================================================
 
-WORK_STATES = ["FOCUSED", "DISTRACTED", "COLLAPSED"]
+WORK_STATES = ["FOCUSED", "DISTRACTED", "COLLAPSED", "INVALID"]
 REST_STATES = ["RESTING"]
+ACTIVE_STATES = [
+    "FOCUSED",
+    "DISTRACTED",
+    "COLLAPSED",
+    "RESTING",
+    "REST_END_ALERT",
+    "INVALID",
+]
 
 
 # ============================================================
@@ -66,22 +75,22 @@ def get_description(state, reason, event):
 def build_timetable(target_date=None):
     """
     오늘 또는 특정 날짜의 로그를 바탕으로 타임테이블 생성.
-    read_logs()는 기본적으로 오늘 날짜 CSV만 읽는다.
+
+    마지막 로그도 누락되지 않도록 처리한다.
+    - 마지막 로그가 진행 중 상태이면 현재 시간까지 이어진 것으로 계산
+    - 마지막 로그가 STOPPED 같은 종료 상태이면 duration 0으로 표시
     """
     logs = read_logs(target_date)
 
-    if len(logs) < 2:
+    if len(logs) == 0:
         return []
 
     timetable = []
 
-    for i in range(len(logs) - 1):
+    for i in range(len(logs)):
         current = logs[i]
-        next_log = logs[i + 1]
 
         start_time = current.get("timestamp", "")
-        end_time = next_log.get("timestamp", "")
-
         state = current.get("state", "")
         reason = current.get("reason", "")
         event = current.get("event", "")
@@ -89,13 +98,26 @@ def build_timetable(target_date=None):
 
         try:
             start_dt = parse_time(start_time)
-            end_dt = parse_time(end_time)
-            duration_seconds = (end_dt - start_dt).total_seconds()
 
-            if duration_seconds < 0:
-                duration_seconds = 0
+            if i < len(logs) - 1:
+                next_log = logs[i + 1]
+                end_time = next_log.get("timestamp", "")
+                end_dt = parse_time(end_time)
+
+            else:
+                if state in ACTIVE_STATES:
+                    end_dt = datetime.now()
+                    end_time = end_dt.strftime("%H:%M:%S")
+
+                else:
+                    end_dt = start_dt
+                    end_time = start_time
+
+            duration_seconds = (end_dt - start_dt).total_seconds()
+            duration_seconds = max(duration_seconds, 0)
 
         except Exception:
+            end_time = start_time
             duration_seconds = 0
 
         timetable.append({
@@ -103,6 +125,7 @@ def build_timetable(target_date=None):
             "start": start_time,
             "end": end_time,
             "state": state,
+            "event": event,
             "description": get_description(state, reason, event),
             "duration": format_seconds(duration_seconds),
         })
@@ -122,6 +145,7 @@ def build_summary(target_date=None):
     focused_seconds = 0
     distracted_seconds = 0
     collapsed_seconds = 0
+    invalid_seconds = 0
     collapsed_count = 0
 
     for item in timetable:
@@ -132,10 +156,12 @@ def build_summary(target_date=None):
                 + int(duration_parts[1]) * 60
                 + int(duration_parts[2])
             )
+
         except Exception:
             duration = 0
 
         state = item["state"]
+        event = item.get("event", "")
 
         if state in WORK_STATES:
             work_seconds += duration
@@ -148,7 +174,12 @@ def build_summary(target_date=None):
 
         elif state == "COLLAPSED":
             collapsed_seconds += duration
-            collapsed_count += 1
+
+            if event == "collapse":
+                collapsed_count += 1
+
+        elif state == "INVALID":
+            invalid_seconds += duration
 
         elif state in REST_STATES:
             rest_seconds += duration
@@ -158,6 +189,7 @@ def build_summary(target_date=None):
         "focused_time": format_seconds(focused_seconds),
         "distracted_time": format_seconds(distracted_seconds),
         "collapsed_time": format_seconds(collapsed_seconds),
+        "invalid_time": format_seconds(invalid_seconds),
         "rest_time": format_seconds(rest_seconds),
         "collapsed_count": collapsed_count,
     }

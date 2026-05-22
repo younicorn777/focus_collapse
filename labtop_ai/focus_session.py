@@ -12,7 +12,7 @@ class FocusSession:
     라즈베리파이는 이 클래스가 만든 payload를 받아 출력만 수행한다.
     """
 
-    WORK_STATES = ["FOCUSED", "DISTRACTED", "COLLAPSED"]
+    WORK_STATES = ["FOCUSED", "DISTRACTED", "COLLAPSED", "INVALID"]
 
     def __init__(self, rest_seconds=20):
         self.storage = SessionStorage()
@@ -102,7 +102,7 @@ class FocusSession:
         if self.state == "STOPPED":
             return "ignored"
 
-        if self.state in self.WORK_STATES:
+        if self.work_start_time is not None:
             self.work_seconds = self.get_current_work_seconds()
 
         self.work_start_time = None
@@ -198,6 +198,9 @@ class FocusSession:
         self.reason = reason
 
         previous_state = self.state
+
+        if previous_state == "INVALID":
+            self.reason = "face_recovered"
 
         if self.score >= 60:
             self.state = "COLLAPSED"

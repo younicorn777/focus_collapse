@@ -12,6 +12,7 @@ app = Flask(__name__)
 hardware = HardwareController()
 lcd = LCDController()
 
+
 latest_data = {
     "state": "STOPPED",
     "score": 0,
@@ -35,9 +36,11 @@ HTML_TEMPLATE = """
             margin: 40px;
             background: #f7f7f7;
         }
+
         h1, h2 {
             color: #222;
         }
+
         .card {
             background: white;
             padding: 20px;
@@ -45,16 +48,19 @@ HTML_TEMPLATE = """
             border-radius: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
+
         table {
             width: 100%;
             border-collapse: collapse;
             background: white;
         }
+
         th, td {
             border-bottom: 1px solid #ddd;
             padding: 10px;
             text-align: left;
         }
+
         th {
             background: #eee;
         }
@@ -74,6 +80,7 @@ HTML_TEMPLATE = """
 
     <div class="card">
         <h2>오늘의 작업·휴식 타임테이블</h2>
+
         <table>
             <thead>
                 <tr>
@@ -83,6 +90,7 @@ HTML_TEMPLATE = """
                     <th>내용</th>
                 </tr>
             </thead>
+
             <tbody>
                 {% for item in timetable %}
                 <tr>
@@ -100,30 +108,20 @@ HTML_TEMPLATE = """
 """
 
 
-def format_seconds(seconds):
-    seconds = int(seconds)
-
-    hours = seconds // 3600
-    minutes = (seconds % 3600) // 60
-    secs = seconds % 60
-
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
 def build_lcd_status(data):
     """
-    lcd.py가 이해하는 형태로 데이터 변환
+    lcd.py가 이해하는 형태로 데이터 변환.
     """
     return {
         "state": data.get("state", "STOPPED"),
-        "current_work_seconds": data.get("work_seconds", 0),
+        "work_seconds": data.get("work_seconds", 0),
         "rest_left_seconds": data.get("rest_left_seconds", 0),
     }
 
 
 def sync_outputs(data):
     """
-    노트북에서 받은 상태를 하드웨어에 그대로 반영
+    노트북에서 받은 상태를 하드웨어에 그대로 반영.
     """
     state = data.get("state", "STOPPED")
 
@@ -134,11 +132,17 @@ def sync_outputs(data):
 def save_if_event(data):
     """
     이벤트가 있을 때만 CSV 저장.
-    heartbeat/status_update는 저장하지 않음.
+    heartbeat/status_update/program_start는 저장하지 않음.
     """
     event = data.get("event", "")
 
-    if event in ["heartbeat", "status_update", "none", ""]:
+    if event in [
+        "heartbeat",
+        "status_update",
+        "none",
+        "",
+        "program_start",
+    ]:
         return None
 
     row = {
@@ -174,10 +178,11 @@ def update_state():
     if data is None:
         return jsonify({
             "status": "error",
-            "message": "No JSON received"
+            "message": "No JSON received",
         }), 400
 
-    latest_data = data
+    latest_data.update(data)
+    data = latest_data
 
     sync_outputs(data)
     saved = save_if_event(data)
@@ -207,12 +212,14 @@ def logs():
 if __name__ == "__main__":
     try:
         sync_outputs(latest_data)
+
         app.run(
             host="0.0.0.0",
             port=5000,
             debug=False,
             threaded=True,
         )
+
     finally:
         hardware.close()
         lcd.close()

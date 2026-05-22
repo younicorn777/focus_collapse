@@ -45,7 +45,7 @@ class YawnDetector:
         vertical = self._distance(top, bottom)
 
         if horizontal == 0:
-            return 0
+            return 0.0
 
         return vertical / horizontal
 
