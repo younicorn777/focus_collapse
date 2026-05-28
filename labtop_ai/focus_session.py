@@ -12,7 +12,11 @@ class FocusSession:
     라즈베리파이는 이 클래스가 만든 payload를 받아 출력만 수행한다.
     """
 
-    WORK_STATES = ["FOCUSED", "DISTRACTED", "COLLAPSED", "INVALID"]
+    # 실제 작업 시간이 증가하는 상태
+    WORK_RUNNING_STATES = ["FOCUSED", "DISTRACTED"]
+
+    # AI 상태 업데이트가 가능한 상태
+    AI_UPDATABLE_STATES = ["FOCUSED", "DISTRACTED", "INVALID"]
 
     def __init__(self, rest_seconds=20):
         self.storage = SessionStorage()
@@ -37,7 +41,13 @@ class FocusSession:
     # ============================================================
 
     def get_current_work_seconds(self):
-        if self.state in self.WORK_STATES:
+        """
+        FOCUSED / DISTRACTED 상태에서만 작업 시간이 증가한다.
+
+        COLLAPSED, INVALID, RESTING, REST_END_ALERT, STOPPED 상태에서는
+        마지막으로 저장된 work_seconds를 그대로 반환한다.
+        """
+        if self.state in self.WORK_RUNNING_STATES:
             if self.work_start_time is not None:
                 return self.work_seconds + (time.time() - self.work_start_time)
 
@@ -119,16 +129,19 @@ class FocusSession:
         r 키:
         작업 중 또는 COLLAPSED 상태에서 휴식 시작.
         """
-        if self.state not in self.WORK_STATES:
+        if self.state not in ["FOCUSED", "DISTRACTED", "COLLAPSED", "INVALID"]:
             return "ignored"
 
-        self.work_seconds = self.get_current_work_seconds()
-        self.work_start_time = None
+        if self.work_start_time is not None:
+            self.work_seconds = self.get_current_work_seconds()
 
+        self.work_start_time = None
         self.rest_start_time = time.time()
 
         if self.state == "COLLAPSED":
             self.reason = "collapse_rest"
+        elif self.state == "INVALID":
+            self.reason = "invalid_rest"
         else:
             self.reason = "manual_rest"
 
@@ -176,6 +189,28 @@ class FocusSession:
         return "none"
 
     # ============================================================
+    # Invalid State
+    # ============================================================
+
+    def mark_invalid(self):
+        """
+        얼굴 인식 불가 상태로 전환.
+
+        INVALID 상태에서는 작업 시간이 정지된다.
+        """
+        if self.state not in ["FOCUSED", "DISTRACTED"]:
+            return "none"
+
+        if self.work_start_time is not None:
+            self.work_seconds = self.get_current_work_seconds()
+
+        self.work_start_time = None
+        self.state = "INVALID"
+        self.reason = "face_not_found"
+
+        return "face_not_found"
+
+    # ============================================================
     # AI State Update
     # ============================================================
 
@@ -184,33 +219,43 @@ class FocusSession:
         AI 점수 결과를 상태에 반영.
 
         적용 조건:
-        - 작업 중 상태에서만 반영
+        - FOCUSED / DISTRACTED / INVALID 상태에서만 반영
         - RESTING / REST_END_ALERT / STOPPED에서는 무시
         - COLLAPSED가 된 뒤에는 r 또는 x 전까지 고정
         """
-        if self.state not in self.WORK_STATES:
+        if self.state not in self.AI_UPDATABLE_STATES:
             return "none"
 
         if self.collapsed_locked:
             return "none"
 
-        self.score = score
-        self.reason = reason
-
         previous_state = self.state
 
+        # INVALID에서 얼굴이 다시 검출되면 작업 시간 재개
         if previous_state == "INVALID":
-            self.reason = "face_recovered"
+            self.work_start_time = time.time()
+
+        self.score = int(score)
+        self.reason = reason
 
         if self.score >= 60:
+            if self.work_start_time is not None:
+                self.work_seconds = self.get_current_work_seconds()
+
+            self.work_start_time = None
             self.state = "COLLAPSED"
             self.collapsed_locked = True
+            self.reason = reason
+
             return "collapse"
 
         if self.score >= 30:
             self.state = "DISTRACTED"
         else:
             self.state = "FOCUSED"
+
+        if previous_state == "INVALID":
+            self.reason = "face_recovered"
 
         if self.state != previous_state:
             return "state_change"

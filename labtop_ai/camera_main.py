@@ -9,7 +9,7 @@ from focus_session import FocusSession
 from sender import Sender
 
 
-PI_URL = "http://라즈베리파이IP:5000/update_state"
+PI_URL = "http://172.16.45.169:5000/update_state"
 # 예: PI_URL = "http://192.168.0.25:5000/update_state"
 
 HEARTBEAT_INTERVAL = 1.0
@@ -147,11 +147,10 @@ def main():
                     missing_duration = current_time - face_not_found_start_time
 
                     if missing_duration >= FACE_NOT_FOUND_SECONDS:
-                        if session.state != "INVALID":
-                            session.state = "INVALID"
-                            session.reason = "face_not_found"
+                        event = session.mark_invalid()
 
-                            send_event(sender, session, "face_not_found")
+                        if event != "none":
+                            send_event(sender, session, event)
                             print("[AI] FACE NOT FOUND")
 
                 else:
@@ -231,6 +230,7 @@ def main():
             put_text(frame, f"Eye Closed: {eye_duration:.1f}s", 255)
             put_text(frame, f"Mouth Ratio: {mouth_ratio:.3f}", 290)
             put_text(frame, f"Mouth Open: {mouth_duration:.1f}s", 325)
+
             put_text(
                 frame,
                 "Keys: s=start x=stop r=rest e=end q=quit",
