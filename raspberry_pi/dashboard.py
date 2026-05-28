@@ -7,7 +7,7 @@ from logger import read_logs
 # State Groups
 # ============================================================
 
-WORK_STATES = ["FOCUSED", "DISTRACTED", "COLLAPSED", "INVALID"]
+WORK_STATES = ["FOCUSED", "DISTRACTED"]
 REST_STATES = ["RESTING"]
 ACTIVE_STATES = [
     "FOCUSED",

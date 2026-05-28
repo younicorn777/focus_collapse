@@ -113,7 +113,7 @@ class LCDController:
             self.display("DISTRACTED", f"Work: {work_time}")
 
         elif state == "COLLAPSED":
-            self.display("FOCUS WARNING", f"Work: {work_time}")
+            self.display("FOCUS WARNING", "Press R on PC")
 
         elif state == "RESTING":
             self.display("RESTING", f"Left: {rest_left}")
